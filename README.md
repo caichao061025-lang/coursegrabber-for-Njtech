@@ -10,6 +10,8 @@
 
 有关学校覆盖与证据等级，请参阅[正方高校覆盖与兼容性记录](docs/zhengfang-university-coverage.md)；页面加载、课程展开与换课限制请参阅[使用注意](docs/usage-notes.md)
 
+南京工业大学用户请同时阅读[南京工业大学适配说明](docs/njtech-adapter.md)。脚本会根据 `jwgl.njtech.edu.cn` 自动启用保守轮询与精确按钮匹配。
+
 ## ⚡ 快速开始
 
 1. 登录学校的正方教务系统并进入**自主选课**页面。
