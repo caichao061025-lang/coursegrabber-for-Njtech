@@ -30,6 +30,7 @@ function extractConst(name) {
 
 function loadCourseGrabberHelpers() {
   const helperSource = [
+    'const PLATFORM_PROFILE = { id: "generic-zhengfang" };',
     extractConst("DROP_BUTTON_EXCLUDED_TEXTS"),
     extractFunction("isCourseCode"),
     extractFunction("extractCourseNameFromJxbmc"),
@@ -43,6 +44,7 @@ function loadCourseGrabberHelpers() {
 
 function loadDropCourse(document, state) {
   const helperSource = [
+    'const PLATFORM_PROFILE = { id: "generic-zhengfang" };',
     extractConst("DROP_BUTTON_EXCLUDED_TEXTS"),
     extractFunction("isCourseCode"),
     extractFunction("extractCourseNameFromJxbmc"),
