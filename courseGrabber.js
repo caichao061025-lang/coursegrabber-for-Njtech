@@ -99,6 +99,59 @@
     }
   }
 
+  // ========== 学校适配配置 ==========
+  function detectPlatformProfile(locationLike) {
+    locationLike = locationLike || {};
+    const hostname = String(locationLike.hostname || "").toLowerCase();
+
+    if (hostname === "jwgl.njtech.edu.cn") {
+      return {
+        id: "njtech",
+        name: "南京工业大学",
+        checkInterval: 3000,
+        maxAttempts: 1000,
+        concurrentEnabled: false,
+        refreshEveryAttempts: 5,
+      };
+    }
+
+    return {
+      id: "generic-zhengfang",
+      name: "通用正方教务系统",
+      checkInterval: 1000,
+      maxAttempts: 3000,
+      concurrentEnabled: true,
+      refreshEveryAttempts: 3,
+    };
+  }
+
+  function inspectPlatformPage(profile, root = document) {
+    if (!profile || profile.id !== "njtech") {
+      return { ready: true, reason: "" };
+    }
+
+    const selectionFlag = root.querySelector("#iskxk");
+    if (selectionFlag && String(selectionFlag.value) !== "1") {
+      return {
+        ready: false,
+        reason: "南工大当前不在选课时间，系统没有加载可操作的课程列表。",
+      };
+    }
+
+    const courseHeads = root.querySelectorAll(".panel-heading.kc_head");
+    if (courseHeads.length === 0) {
+      return {
+        ready: false,
+        reason:
+          "南工大选课页面尚未加载课程卡片。请先使用课程号搜索并确认目标课程已经显示。",
+      };
+    }
+
+    return { ready: true, reason: "" };
+  }
+
+  const PLATFORM_PROFILE = detectPlatformProfile(__CG_GLOBAL__.location);
+
   // ========== 配置参数 ==========
   // 支持多门课程同时抢课，格式: [{code: '课程号或课程名称', priority: 优先级, timeFilter: 时间过滤, teacherFilter: 教师过滤}]
   // code 字段支持两种输入方式：
@@ -113,11 +166,11 @@
     // { code: 'CS104', priority: 4, timeFilter: ['第1-2节'], teacherFilter: ['王五'] }  // 同时过滤时间和教师
   ];
 
-  const CHECK_INTERVAL = 1000; // 检查间隔(毫秒)
-  const MAX_ATTEMPTS = 3000; // 最大尝试次数
+  const CHECK_INTERVAL = PLATFORM_PROFILE.checkInterval; // 检查间隔(毫秒)
+  const MAX_ATTEMPTS = PLATFORM_PROFILE.maxAttempts; // 最大尝试次数
   const MAX_FAILED_ATTEMPTS = 10; // 最大连续失败次数
   const RETRY_DELAY = 3000; // 重试延迟(毫秒)
-  const CONCURRENT_ENABLED = true; // 是否启用并发抢课
+  const CONCURRENT_ENABLED = PLATFORM_PROFILE.concurrentEnabled; // 是否启用并发抢课
   const CLICK2EXPEND_ENABLED = true; // 用户设置: 是否在 jQuery 后自动展开目标课程信息，用于时间筛选和教师筛选
 
   let click2expend_enabled = true; // 用于脚本自动关闭
@@ -723,11 +776,15 @@
           continue;
         }
 
-        const dropButton = findClickableElementByText(
-          row,
-          "退选",
-          DROP_BUTTON_EXCLUDED_TEXTS,
-        );
+        const dropButton =
+          (PLATFORM_PROFILE.id === "njtech"
+            ? row.querySelector('button[onclick*="cancelCourseZzxk"]')
+            : null) ||
+          findClickableElementByText(
+            row,
+            "退选",
+            DROP_BUTTON_EXCLUDED_TEXTS,
+          );
         const rowText = row.textContent || "";
         if (!dropButton && !rowText.includes("退选")) {
           continue;
@@ -1042,6 +1099,70 @@
     }
   }
 
+  function findSelectActionElement(row, profile = PLATFORM_PROFILE) {
+    if (!row) {
+      return null;
+    }
+
+    // 南工大的按钮有稳定的 id 和 onclick，优先精确匹配，避免误点“预定教材”等按钮。
+    if (profile && profile.id === "njtech") {
+      const exactButton = row.querySelector(
+        'td.an button[id^="btn-xk-"][onclick*="chooseCourseZzxk"], td.an button[onclick*="chooseCourseZzxk"]',
+      );
+      if (exactButton) {
+        return exactButton;
+      }
+    }
+
+    const allElements = row.querySelectorAll("*");
+    for (let element of allElements) {
+      const elementText = (element.textContent || "").trim();
+      if (
+        elementText === "选课" &&
+        !elementText.includes("退选") &&
+        isElementClickable(element)
+      ) {
+        return element;
+      }
+    }
+
+    for (let element of allElements) {
+      const elementText = (element.textContent || "").trim();
+      if (
+        elementText.includes("选课") &&
+        !elementText.includes("退选") &&
+        isElementClickable(element)
+      ) {
+        return element;
+      }
+    }
+
+    // 南工大适配禁止“任取一个可点击控件”的宽松回退，防止误操作。
+    if (profile && profile.id === "njtech") {
+      return null;
+    }
+
+    const clickableElements = row.querySelectorAll(
+      'button, a, input[type="button"], [onclick]',
+    );
+    for (let element of clickableElements) {
+      const elementText = (element.textContent || "").trim();
+      if (
+        !elementText.includes("退选") &&
+        !elementText.includes("详情") &&
+        !elementText.includes("查看") &&
+        !elementText.includes("取消") &&
+        !elementText.includes("关闭") &&
+        elementText.length > 0 &&
+        isElementClickable(element)
+      ) {
+        return element;
+      }
+    }
+
+    return null;
+  }
+
   // 退选指定课程；courseCode 可为课程号或课程名，课程号匹配更安全
   function dropCourse(courseCode) {
     return new Promise((resolve) => {
@@ -1089,11 +1210,15 @@
               continue;
             }
 
-            const dropButton = findClickableElementByText(
-              tc.row,
-              "退选",
-              DROP_BUTTON_EXCLUDED_TEXTS,
-            );
+            const dropButton =
+              (PLATFORM_PROFILE.id === "njtech"
+                ? tc.row.querySelector('button[onclick*="cancelCourseZzxk"]')
+                : null) ||
+              findClickableElementByText(
+                tc.row,
+                "退选",
+                DROP_BUTTON_EXCLUDED_TEXTS,
+              );
             if (dropButton) {
               dropCandidates.push({
                 ...tc,
@@ -1135,6 +1260,9 @@
         const row = dropClass.row;
         let dropButton =
           dropClass.button ||
+          (PLATFORM_PROFILE.id === "njtech"
+            ? row.querySelector('button[onclick*="cancelCourseZzxk"]')
+            : null) ||
           findClickableElementByText(row, "退选", DROP_BUTTON_EXCLUDED_TEXTS);
 
         if (!dropButton) {
@@ -1282,71 +1410,7 @@
       const row = teachingClass.row;
       const rowText = row.textContent || "";
 
-      // 查找包含"选课"文本的元素 - 更精确的查找逻辑
-      let selectElement = null;
-      const allElements = row.querySelectorAll("*");
-
-      // 优先级1: 查找明确的"选课"文本
-      for (let element of allElements) {
-        const elementText = element.textContent.trim();
-        if (elementText === "选课") {
-          // 确保不是退选按钮，且是可点击的
-          if (
-            !elementText.includes("退选") &&
-            (element.tagName === "BUTTON" ||
-              element.tagName === "A" ||
-              element.onclick ||
-              element.getAttribute("onclick"))
-          ) {
-            selectElement = element;
-            break;
-          }
-        }
-      }
-
-      // 优先级2: 查找包含"选课"的可点击元素
-      if (!selectElement) {
-        for (let element of allElements) {
-          const elementText = element.textContent.trim();
-          if (elementText.includes("选课") && !elementText.includes("退选")) {
-            if (
-              element.tagName === "BUTTON" ||
-              element.tagName === "A" ||
-              element.onclick ||
-              element.getAttribute("onclick")
-            ) {
-              selectElement = element;
-              break;
-            }
-          }
-        }
-      }
-
-      // 优先级3: 查找可点击的按钮或链接（但要排除明确的退选或其他功能）
-      if (!selectElement) {
-        const clickableElements = row.querySelectorAll(
-          'button, a, input[type="button"], [onclick]',
-        );
-        for (let element of clickableElements) {
-          const elementText = element.textContent.trim();
-          // 只有在排除了明确的其他功能按钮后才选择
-          if (
-            !elementText.includes("退选") &&
-            !elementText.includes("详情") &&
-            !elementText.includes("查看") &&
-            !elementText.includes("取消") &&
-            !elementText.includes("关闭") &&
-            elementText.length > 0 &&
-            (element.tagName === "BUTTON" ||
-              element.tagName === "A" ||
-              element.onclick ||
-              element.getAttribute("onclick"))
-          ) {
-            selectElement = element;
-            break;
-          }
-        }
-      }
+      const selectElement = findSelectActionElement(row);
 
       if (selectElement) {
         log("找到选课元素，正在点击...", "info", courseCode);
@@ -1838,6 +1902,13 @@
       return;
     }
 
+    const pageState = inspectPlatformPage(PLATFORM_PROFILE, document);
+    if (!pageState.ready) {
+      log(`❌ ${pageState.reason}`, "error");
+      alert(pageState.reason);
+      return false;
+    }
+
     // 请求通知权限
     if (window.Notification && Notification.permission === "default") {
       Notification.requestPermission();
@@ -1893,6 +1964,7 @@
     }
 
     log(`🚀 开始监控 ${activeCourses.size} 门课程`, "success");
+    log(`🏫 当前适配: ${PLATFORM_PROFILE.name}`, "info");
     log(`📋 课程列表: ${Array.from(activeCourses).join(", ")}`, "info");
     log(`⏱️ 检查间隔: ${CHECK_INTERVAL / 1000} 秒`, "info");
     log(`🎯 最大尝试次数: ${MAX_ATTEMPTS}`, "info");
@@ -1935,7 +2007,11 @@
       // 注意：attemptCount 在 attemptGrabCourse() 内部自增；如果这里先走“刷新分支”，
       // attemptGrabCourse() 会被延迟 1s，这段时间内 attemptCount 不变，会导致下一次 interval 再次满足 %8===0，
       // 从而出现“已触发jQuery搜索刷新”连续打印两次的现象。
-      if (attemptCount > 0 && attemptCount % 3 === 0 && !refreshInProgress) {
+      if (
+        attemptCount > 0 &&
+        attemptCount % PLATFORM_PROFILE.refreshEveryAttempts === 0 &&
+        !refreshInProgress
+      ) {
         refreshInProgress = true;
         refreshCourseList();
         refreshTimeoutId = setTimeout(() => {
@@ -1980,6 +2056,7 @@
       checkInterval: CHECK_INTERVAL,
       maxAttempts: MAX_ATTEMPTS,
       concurrentMode: CONCURRENT_ENABLED,
+      platform: PLATFORM_PROFILE.name,
     };
 
     console.log(
@@ -2214,6 +2291,7 @@
       },
       getInterval: () => CHECK_INTERVAL,
       getConcurrentMode: () => CONCURRENT_ENABLED,
+      getPlatform: () => ({ ...PLATFORM_PROFILE }),
       getGlobalTimeFilter: () => GLOBAL_TIME_FILTER,
       getGlobalTeacherFilter: () => GLOBAL_TEACHER_FILTER,
       // 显示过滤器信息
@@ -2262,6 +2340,10 @@
   );
   console.log(
     "%c📚 目标课程数: " + TARGET_COURSES.length,
+    "color: #4ecdc4; font-size: 14px; font-weight: bold;",
+  );
+  console.log(
+    "%c🏫 当前适配: " + PLATFORM_PROFILE.name,
     "color: #4ecdc4; font-size: 14px; font-weight: bold;",
   );
   console.log(
